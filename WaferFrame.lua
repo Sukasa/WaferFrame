@@ -5,18 +5,29 @@ function TrySetTime()
   net.dns.resolve("0.pool.ntp.org", SetTime)
 end
 
+TimeCount = 0
+
+function SetTime2()
+  if (rtctime.get() == 0) and (TimeCount < 100) then
+    tmr.alarm(1, 100, tmr.ALARM_SINGLE, SetTime2)
+    TimeCount = TimeCount + 1
+    return
+  end
+  LastTimeUpdate = rtctime.get()
+  -- Go from unix timestamp to day of year (roughly)
+  T = math.floor(((rtctime.get() % 126230400) % 31536000) / 86400)
+  Timezone = -8 -- PST = UTC-8
+  if(T>=133 and T<310) then -- If during DST period, switch to PDT
+    Timezone = -7
+  end
+  print("Time sync complete")
+end
+
 function SetTime(_, IPAddr)
   if IPAddr ~= nil then
     sntp.sync(IPAddr) 
-    tmr.delay(10000000)	
-	LastTimeUpdate = rtctime.get()
-	-- Go from unix timestamp to day of year (roughly)
-    T = math.floor(((rtctime.get() % 126230400) % 31536000) / 86400)
-    Timezone = -8 -- PST = UTC-8
-    if(T>=133 and T<310) then -- If during DST period, switch to PDT
-      Timezone = -7
-    end
-    print("Sync complete")
+	TimeCount = 0
+    tmr.alarm(1, 2000, tmr.ALARM_SINGLE, SetTime2)
   else
     -- Failed to do DNS lookup; try again
     tmr.alarm(1, 500, tmr.ALARM_SINGLE, TrySetTime)
@@ -25,7 +36,7 @@ end
 
 -- Get current hour of the day as a floating-point number from 0 <= n < 24
 function CurrentHour()
-  return((rtctime.get() % 86400) / 3600 + 24 + dstoffs) % 24
+  return((rtctime.get() % 86400) / 3600 + 24 + Timezone) % 24
 end
 
 -- Initialize the "tail" of bits needed to properly command the DotStar strip
@@ -70,7 +81,7 @@ function Tick()
   end
   
   -- Sync time every hour
-  if LastTimeUpdate > 0 and (rtctime.get() - LastTimeUpdate > 3600000) then
+  if LastTimeUpdate > 0 and (rtctime.get() - LastTimeUpdate > 3600) then
     TrySetTime()
 	LastTimeUpdate = 0
   end
@@ -102,6 +113,8 @@ end
 
 -- Initialization function
 function Initialize()
+  print("Starting program...")
+
   spi.setup(1, spi.MASTER, spi.CPOL_LOW, spi.CPHA_HIGH, 8, 0)
   
   Timezone = 0
@@ -123,7 +136,7 @@ function Initialize()
   StepsRemaining = MaxStepsRemaining
 
   LEDs={}
-  for i = 0, NumLEDS - 1 do
+  for i = 0, NumLEDs - 1 do
     local k = i * 4
     LEDs[k + 1] = 240
     LEDs[k + 2] = 255
