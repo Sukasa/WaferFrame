@@ -1,4 +1,7 @@
+dofile("Modes.lua")
 NumLEDs = 60
+CurrentMode = "Rainbow"
+MaxBrightness = 31
 
 -- DNS-resolve an NTP time source and set the time/dst offset in the callback
 function TrySetTime()
@@ -6,6 +9,31 @@ function TrySetTime()
 end
 
 TimeCount = 0
+
+function ChangeMode(mode)
+  if type(_G[mode]) == "function" then
+    CurrentMode = _G[mode]
+	if _G["Init"..mode] then
+	  local d = _G["Init"..mode]()
+	  tmr.alarm(0, d, tmr.ALARM_AUTO, Tick)
+	else
+	  tmr.alarm(0, 250, tmr.ALARM_AUTO, Tick)
+	end
+    return true
+  end
+  return false
+end
+
+function Blank()
+  LEDs={}
+  for i = 0, NumLEDs - 1 do
+    local k = i * 4
+    LEDs[k + 1] = 240
+    LEDs[k + 2] = 0
+    LEDs[k + 3] = 0
+    LEDs[k + 4] = 0
+  end
+end
 
 function SetTime2()
   if (rtctime.get() == 0) and (TimeCount < 100) then
@@ -62,7 +90,6 @@ function Advance()
     LEDs[dst + 3] = LEDs[src + 3]
     LEDs[dst + 4] = LEDs[src + 4]
   end
-  LEDs[1] = Brightness + 224
 end
 
 -- Update tick.  Calc brightness, update LED strip colours, draw new LED at head, and push to strip
@@ -80,23 +107,15 @@ function Tick()
     Brightness = 1
   end
   
+  MaxBrightness = math.min(math.max(MaxBrightness, 0), 31)
+  Brightness = math.min(MaxBrightness, Brightness) + 224
+  
+  CurrentMode()
+  
   -- Sync time every hour
   if LastTimeUpdate > 0 and (rtctime.get() - LastTimeUpdate > 3600) then
     TrySetTime()
 	LastTimeUpdate = 0
-  end
-  
-  Advance()
-  
-  LEDs[2] = LEDs[2] + CurrentStep[1]
-  LEDs[3] = LEDs[3] + CurrentStep[2]
-  LEDs[4] = LEDs[4] + CurrentStep[3]
-  
-  StepsRemaining = StepsRemaining - 1
-  if (StepsRemaining == 0) then
-    StepsRemaining = MaxStepsRemaining
-    CurrentStepNum = (CurrentStepNum % StepCount) + 1
-    CurrentStep = Steps[CurrentStepNum]
   end
   
   Send()
@@ -121,29 +140,7 @@ function Initialize()
   LastTimeUpdate = 0
   AwaitWifi()
 
-  Steps = {
-   {  0,  1,  0 },
-   { -1,  0,  0 },
-   {  0,  0,  1 },
-   {  0, -1,  0 },
-   {  1,  0,  0 },
-   {  0,  0, -1 },
-  }
-  CurrentStep = Steps[1]
-  CurrentStepNum = 1
-  StepCount = 6
-  MaxStepsRemaining = 255
-  StepsRemaining = MaxStepsRemaining
-
-  LEDs={}
-  for i = 0, NumLEDs - 1 do
-    local k = i * 4
-    LEDs[k + 1] = 240
-    LEDs[k + 2] = 255
-    LEDs[k + 3] = 0
-    LEDs[k + 4] = 0
-  end
-  Brightness = 31
+  ChangeMode(CurrentMode)
 
   InitTail()
   tmr.alarm(0, 10, tmr.ALARM_AUTO, Tick)
